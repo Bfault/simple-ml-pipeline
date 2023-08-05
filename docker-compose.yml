@@ -1,0 +1,26 @@
+version: "3"
+services:
+  preprocessing:
+    build:
+      context: ./preprocessing
+    volumes:
+      - ./data:/app/data
+    args:
+      HOST_UID: ${UID}
+    environment:
+      - TRAINING_SIZE=1
+      - DATA_FILE=iris.csv
+    command: python preprocessing.py
+
+  training:
+    build:
+      context: ./training
+    volumes:
+      - ./data:/app/data
+    args:
+      HOST_UID: ${UID}
+    environment:
+      - TARGET_NAME=variety
+    depends_on:
+      - preprocessing
+    command: python training.py
