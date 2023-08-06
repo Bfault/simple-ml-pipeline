@@ -1,0 +1,63 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Workflow
+metadata:
+  generateName: ml-pipeline-
+spec:
+  entrypoint: ml-pipeline
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+        # name: data-pvc
+      spec:
+        accessModes: [ "ReadWriteOnce" ]
+        resources:
+          requests:
+            storage: 1Gi
+  volumes:
+    # - name: data
+      # persistentVolumeClaim:
+        # claimName: data-pvc
+    - name: model
+      emptyDir: {}
+  templates:
+    - name: ml-pipeline
+      steps:
+        - - name: data-fetching
+            template: fetching-task
+        - - name: data-preprocessing
+            template: preprocessing-task
+        - - name: training
+            template: training-task
+
+    - name: fetching-task
+      container:
+        image: curlimages/curl
+        command: [ "sh", "-c" ]
+        args: ["curl -o /data/input.csv https://gist.githubusercontent.com/netj/8836201/raw/6f9306ad21398ea43cba4f7d537619d0e07d5ae3/iris.csv"]
+        volumeMounts:
+          - name: data
+            mountPath: /data
+
+    - name: preprocessing-task
+      container:
+        image: lorenzocarrascosa/preprocessing
+        # env:
+          # - name: TRAINING_SIZE
+          # - value: "1"
+        command: [ "python", "preprocessing.py", "/data/input.csv" ]
+        volumeMounts:
+          - name: data
+            mountPath: /data
+
+    - name: training-task
+      container:
+        image: lorenzocarrascosa/training
+        # env:
+          # - name: TARGET_NAME
+          # - value: "variety"
+        command: [ "python", "training.py", "/data/train.feather" ]
+        volumeMounts:
+          - name: data
+            mountPath: /data
+          - name: model
+            mountPath: /model
