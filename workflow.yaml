@@ -41,9 +41,6 @@ spec:
     - name: preprocessing-task
       container:
         image: lorenzocarrascosa/preprocessing
-        # env:
-          # - name: TRAINING_SIZE
-          # - value: "1"
         command: [ "python", "preprocessing.py", "/data/input.csv" ]
         volumeMounts:
           - name: data
@@ -52,9 +49,6 @@ spec:
     - name: training-task
       container:
         image: lorenzocarrascosa/training
-        # env:
-          # - name: TARGET_NAME
-          # - value: "variety"
         command: [ "python", "training.py", "/data/train.feather" ]
         volumeMounts:
           - name: data
