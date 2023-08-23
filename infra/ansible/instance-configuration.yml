@@ -1,0 +1,138 @@
+- name: EC2 Spot instance configuration
+  hosts: all
+  become: yes
+
+  tasks:
+  - name: Install packages that allow apt to be used over HTTPS
+    apt:
+      name: "{{ packages }}"
+      state: present
+      update_cache: yes
+    vars:
+      packages:
+      - apt-transport-https
+      - ca-certificates
+      - curl
+      - gnupg-agent
+      - software-properties-common
+  
+  - name: Install Docker
+    tasks:
+    - name: Add an apt signing key for Docker
+      apt_key:
+        url: https://download.docker.com/linux/ubuntu/gpg
+        state: present
+
+    - name: Add apt repository for stable version
+      apt_repository:
+        repo: deb [arch=amd64] https://download.docker.com/linux/ubuntu jammy stable
+        state: present
+
+    - name: Apt install docker and its dependecies
+      apt: 
+        name: "{{ packages }}"
+        state: present
+        update_cache: yes
+      vars:
+        packages:
+        - docker-ce 
+        - docker-ce-cli 
+        - containerd.io
+      notify:
+        - docker status
+  
+  - name: Install Kunernetes
+    tasks:
+    - name: Disable swap
+      tasks:
+      - name: Remove swapfile from /etc/fstab
+        mount:
+          name: "{{ item }}"
+          fstype: swap
+          state: absent
+        with_items:
+          - swap
+          - none
+      command: swapoff -a
+
+    - name: Add an apt signing key for Kubernetes
+      apt_key:
+        url: https://packages.cloud.google.com/apt/doc/apt-key.gpg
+        state: present
+
+    - name: Adding apt repository for Kubernetes
+      apt_repository:
+        repo: deb https://apt.kubernetes.io/ kubernetes-xenial main
+        state: present
+        filename: kubernetes.list
+
+    - name: Install Kubernetes binaries
+      apt: 
+        name: "{{ packages }}"
+        state: present
+        update_cache: yes
+      vars:
+        packages:
+          - kubelet 
+          - kubeadm 
+          - kubectl
+
+    - name: Configure node ip
+      lineinfile:
+        path: /etc/default/kubelet
+        line: KUBELET_EXTRA_ARGS=--node-ip={{ node_ip }}
+
+    - name: Restart kubelet
+      service:
+        name: kubelet
+        daemon_reload: yes
+        state: restarted
+  
+  - name: Initialize the Kubernetes cluster using kubeadm
+    command: kubeadm init --apiserver-advertise-address="192.168.50.10" --apiserver-cert-extra-sans="192.168.50.10"  --node-name k8s-master --pod-network-cidr=192.168.0.0/16
+
+  - name: Install calico pod network
+    become: false
+    command: kubectl create -f https://docs.projectcalico.org/v3.4/getting-started/kubernetes/installation/hosted/calico.yaml # TODO: look for a newer version
+  
+  - name: Install Argo Workflows CLI
+    become: true
+    vars:
+      argo_cli_url: "https://github.com/argoproj/argo-workflows/releases/latest/download/argo-linux-amd64.gz"
+      argo_cli_path: "/usr/local/bin/argo"
+    tasks:
+    - name: Download Argo Workflows CLI
+      ansible.builtin.get_url:
+        url: "{{ argo_cli_url }}"
+        dest: "/tmp/argo-linux-amd64.gz"
+      register: download_result
+
+    - name: Unzip and Install Argo Workflows CLI
+      ansible.builtin.unarchive:
+        src: "/tmp/argo-linux-amd64.gz"
+        dest: "{{ argo_cli_path }}"
+        remote_src: yes
+        mode: '0755'
+      when: download_result|success
+
+    - name: Clean up downloaded archive
+      ansible.builtin.file:
+        path: "/tmp/argo-linux-amd64.gz"
+        state: absent
+      when: download_result|success
+  
+  - name: Create Argo Workflows namespace
+    become: true
+    command: kubectl create namespace argo
+  
+  - name: Install Argo Workflows
+    become: true
+    command: kubectl apply -n argo -f https://github.com/argoproj/argo-workflows/releases/latest/download/install.yaml
+
+  - name: Submit workflow
+    become: true
+    command: argo submit workflow.yaml
+
+  handlers:
+    - name: docker status
+      service: name=docker state=started
